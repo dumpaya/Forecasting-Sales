@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Home — Sales Forecasting{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📈 Sales Forecasting Dashboard</h1>
+  <p>Analisis dan prediksi penjualan produk berbasis machine learning</p>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+
+  <div class="card">
+    <div class="card-title">📊 Data Analysis</div>
+    <ul style="padding-left:1.2rem;line-height:2;color:#475569;font-size:.9rem">
+      <li>Upload dataset CSV penjualan</li>
+      <li>Preview &amp; Exploratory Data Analysis (EDA)</li>
+      <li>Analisis tren penjualan</li>
+      <li>Klasifikasi produk: Stable, Declining, Volatile, Intermittent, Discontinued</li>
+    </ul>
+    <br>
+    <a href="/eda" class="btn btn-secondary">Buka Data Analysis →</a>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔮 Forecasting</div>
+    <ul style="padding-left:1.2rem;line-height:2;color:#475569;font-size:.9rem">
+      <li>XGBoost, LightGBM, CatBoost</li>
+      <li>Random Forest, Extra Trees, Gradient Boosting</li>
+      <li>ElasticNet, Prophet, BiLSTM</li>
+    </ul>
+    <p style="color:#64748b;font-size:.83rem;margin:.5rem 0 1rem">Model direkomendasikan sesuai karakteristik produk.</p>
+    <a href="/forecast" class="btn btn-primary">Buka Forecast →</a>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📐 MAPE Analysis</div>
+    <ul style="padding-left:1.2rem;line-height:2;color:#475569;font-size:.9rem">
+      <li>Evaluasi akurasi forecast per produk</li>
+      <li>Grafik Forecast vs Actual per item</li>
+      <li>Ringkasan akurasi keseluruhan</li>
+      <li>Export hasil ke CSV</li>
+    </ul>
+    <br>
+    <a href="/mape" class="btn btn-secondary">Buka MAPE →</a>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📄 Format CSV yang Didukung</div>
+    <p style="color:#475569;font-size:.875rem;margin-bottom:.5rem">Kolom minimal yang diperlukan:</p>
+    <ul style="padding-left:1.2rem;line-height:2;color:#475569;font-size:.875rem">
+      <li><code style="background:#f1f5f9;padding:.1rem .35rem;border-radius:4px">ds</code> atau <code style="background:#f1f5f9;padding:.1rem .35rem;border-radius:4px">date/tanggal/bulan</code> — kolom tanggal</li>
+      <li><code style="background:#f1f5f9;padding:.1rem .35rem;border-radius:4px">y</code> atau <code style="background:#f1f5f9;padding:.1rem .35rem;border-radius:4px">sales/qty/penjualan</code> — kolom nilai</li>
+      <li><code style="background:#f1f5f9;padding:.1rem .35rem;border-radius:4px">Model</code> — nama/kode produk (opsional)</li>
+    </ul>
+    <p style="color:#16a34a;font-size:.82rem;margin-top:.75rem">
+      ✅ Support format tanggal Indonesia: Jan-21, Mei-21, Agu-21, Okt-21, Des-21
+    </p>
+  </div>
+
+</div>
+{% endblock %}

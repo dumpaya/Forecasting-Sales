@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Sales Forecasting{% endblock %}</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <style>
+    /* ── Reset & base ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ── Sidebar ──────────────────────────────────── */
+    .sidebar {
+      width: 220px;
+      min-height: 100vh;
+      background: linear-gradient(160deg, #1e3a5f 0%, #1e4d8c 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 1.5rem 0;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+    }
+    .sidebar-logo {
+      color: #fff;
+      font-size: 1.15rem;
+      font-weight: 700;
+      padding: 0 1.25rem 1.5rem;
+      border-bottom: 1px solid rgba(255,255,255,.15);
+    }
+    .sidebar-logo span { font-size: 1.4rem; }
+    .sidebar nav { padding: 1rem 0; flex: 1; }
+    .sidebar nav a {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      color: rgba(255,255,255,.75);
+      text-decoration: none;
+      padding: .65rem 1.25rem;
+      font-size: .9rem;
+      font-weight: 500;
+      border-left: 3px solid transparent;
+      transition: all .18s;
+    }
+    .sidebar nav a:hover,
+    .sidebar nav a.active {
+      color: #fff;
+      background: rgba(255,255,255,.1);
+      border-left-color: #60a5fa;
+    }
+    .sidebar-footer {
+      padding: 1rem 1.25rem 0;
+      border-top: 1px solid rgba(255,255,255,.1);
+      color: rgba(255,255,255,.45);
+      font-size: .75rem;
+    }
+
+    /* ── Main content ─────────────────────────────── */
+    .main {
+      margin-left: 220px;
+      flex: 1;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+
+    /* ── Page header ──────────────────────────────── */
+    .page-header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d6a9f 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 1.75rem;
+    }
+    .page-header h1 { font-size: 1.6rem; font-weight: 700; }
+    .page-header p  { color: rgba(255,255,255,.8); margin-top: .2rem; font-size: .9rem; }
+
+    /* ── Card ─────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .card-title {
+      font-weight: 700;
+      color: #1e3a5f;
+      margin-bottom: .75rem;
+      font-size: 1rem;
+    }
+
+    /* ── Metrics row ──────────────────────────────── */
+    .metrics-row { display: grid; gap: 1rem; margin-bottom: 1.25rem; }
+    .metrics-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .metrics-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .metric-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+    }
+    .metric-label  { font-size: .78rem; color: #64748b; font-weight: 500; margin-bottom: .25rem; }
+    .metric-value  { font-size: 1.6rem; font-weight: 700; color: #1e3a5f; }
+
+    /* ── Buttons ──────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .55rem 1.1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: filter .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-primary   { background: #2d6a9f; color: #fff; }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-secondary { background: #e2e8f0; color: #1e3a5f; }
+    .btn-secondary:hover { background: #cbd5e1; }
+    .btn-success   { background: #16a34a; color: #fff; }
+    .btn-success:hover { filter: brightness(1.1); }
+    .btn-danger    { background: #dc2626; color: #fff; }
+
+    /* ── Upload zone ──────────────────────────────── */
+    .upload-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: #f8fafc;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: #2d6a9f;
+      background: #eff6ff;
+    }
+    .upload-zone input[type=file] { display: none; }
+    .upload-zone-icon { font-size: 2.5rem; margin-bottom: .5rem; }
+    .upload-zone p { color: #64748b; font-size: .9rem; }
+    .upload-zone strong { color: #2d6a9f; }
+
+    /* ── Table ────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 600;
+      padding: .55rem .75rem;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    td {
+      padding: .5rem .75rem;
+      border-bottom: 1px solid #f1f5f9;
+      white-space: nowrap;
+    }
+    tr:hover td { background: #f8fafc; }
+
+    /* ── Badge ────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 600;
+    }
+    .badge-stable       { background:#dcfce7; color:#15803d; }
+    .badge-declining    { background:#fee2e2; color:#b91c1c; }
+    .badge-volatile     { background:#fef9c3; color:#a16207; }
+    .badge-intermittent { background:#ede9fe; color:#6d28d9; }
+    .badge-discontinued { background:#f1f5f9; color:#475569; }
+
+    .badge-sb { background:#dcfce7; color:#15803d; }
+    .badge-b  { background:#dbeafe; color:#1d4ed8; }
+    .badge-c  { background:#fef9c3; color:#a16207; }
+    .badge-k  { background:#fee2e2; color:#b91c1c; }
+    .badge-na { background:#f1f5f9; color:#64748b; }
+
+    /* ── Alert / info box ─────────────────────────── */
+    .alert {
+      padding: .85rem 1.1rem;
+      border-radius: 8px;
+      font-size: .875rem;
+      margin-bottom: 1rem;
+    }
+    .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+    .alert-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; }
+    .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+
+    /* ── Progress bar ─────────────────────────────── */
+    .progress-wrap { background: #e2e8f0; border-radius: 999px; height: 8px; overflow: hidden; margin: .5rem 0; }
+    .progress-bar  { background: #2d6a9f; height: 100%; border-radius: 999px; transition: width .3s; }
+
+    /* ── Select / Input ───────────────────────────── */
+    select, input[type=number], input[type=range] {
+      font-family: inherit;
+      font-size: .875rem;
+      padding: .4rem .7rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #1e293b;
+    }
+    select:focus, input:focus { outline: 2px solid #2d6a9f; border-color: transparent; }
+
+    /* ── Spinner ──────────────────────────────────── */
+    .spinner {
+      display: inline-block;
+      width: 1.1rem; height: 1.1rem;
+      border: 2px solid #cbd5e1;
+      border-top-color: #2d6a9f;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: .4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+
+    /* ── Divider ──────────────────────────────────── */
+    hr.divider { border: none; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
+
+    /* ── Responsive adjustments ───────────────────── */
+    @media (max-width: 768px) {
+      .sidebar { width: 100%; min-height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
+      .main    { margin-left: 0; }
+      .metrics-row.cols-4 { grid-template-columns: repeat(2, 1fr); }
+      .metrics-row.cols-3 { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo"><span>📈</span> Forecasting</div>
+  <nav>
+    <a href="/"       class="{% if request.path=='/'        %}active{% endif %}">🏠 Home</a>
+    <a href="/eda"    class="{% if request.path=='/eda'     %}active{% endif %}">📊 Data Analysis</a>
+    <a href="/forecast" class="{% if request.path=='/forecast' %}active{% endif %}">🔮 Forecast</a>
+    <a href="/mape"   class="{% if request.path=='/mape'    %}active{% endif %}">📐 MAPE Analysis</a>
+  </nav>
+  <div class="sidebar-footer">Sales Forecasting Dashboard</div>
+</aside>
+
+<!-- ── Main ── -->
+<main class="main">
+  {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}MAPE Analysis — Sales Forecasting{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📐 Performa & Evaluasi Akurasi Model (wMAPE & MAPE)</h1>
+  <p>Melihat tingkat kesalahan prediksi berdasarkan hasil evaluasi data historis (Backtesting)</p>
+</div>
+
+<div id="mape-summary-cards" class="hidden">
+  <div class="metrics-row cols-3">
+    <div class="metric-card" style="border-left: 5px solid #2d6a9f;">
+      <div class="metric-label">Rata-rata wMAPE Sistem</div>
+      <div class="metric-value" id="avgMapeVal">—</div>
+    </div>
+    <div class="metric-card" style="border-left: 5px solid #16a34a;">
+      <div class="metric-label">Akurasi Terbaik (Min wMAPE)</div>
+      <div class="metric-value" id="minMapeVal">—</div>
+    </div>
+    <div class="metric-card" style="border-left: 5px solid #dc2626;">
+      <div class="metric-label">Error Tertinggi (Max wMAPE)</div>
+      <div class="metric-value" id="maxMapeVal">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">🎯 Evaluasi Tingkat Kesalahan Model per Produk</div>
+  
+  <div id="mape-loading" style="text-align: center; padding: 2rem 0;">
+    <span class="spinner"></span> Menghubungkan ke session forecast...
+  </div>
+
+  <div id="mape-error-box" class="alert alert-warn hidden">
+    ⚠️ <strong>Hasil Evaluasi Belum Ada.</strong> Silakan lakukan upload data dan jalankan 
+    <strong>Generate Forecast</strong> di menu <a href="/forecast">🔮 Forecast</a> terlebih dahulu agar sistem dapat mengevaluasi akurasi model.
+  </div>
+
+  <div id="mape-table-content" class="hidden">
+    <div style="margin-bottom: 1.25rem;">
+      <a href="/api/download/mape" class="btn btn-success">📥 Download Laporan Lengkap (.CSV)</a>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Nama Produk</th>
+            <th>Kategori Pola</th>
+            <th>Metode Model</th>
+            <th>MAPE Asli (%)</th>
+            <th>wMAPE (%)</th>
+            <th>Kategori Kualitas Akurasi</th>
+          </tr>
+        </thead>
+        <tbody id="mapeTableBody">
+          </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  loadMapeSummary();
+});
+
+async function loadMapeSummary() {
+  const loading = document.getElementById('mape-loading');
+  const errorBox = document.getElementById('mape-error-box');
+  const tableContent = document.getElementById('mape-table-content');
+  const summaryCards = document.getElementById('mape-summary-cards');
+
+  try {
+    const res = await fetch('/api/mape_summary');
+    const data = await res.json();
+
+    loading.classList.add('hidden');
+
+    if (!res.ok) {
+      errorBox.classList.remove('hidden');
+      return;
+    }
+
+    // Isi Ringkasan Statistik (berbasis data wMAPE rata-rata dari backend)
+    document.getElementById('avgMapeVal').textContent = data.avgMape !== null ? data.avgMape + '%' : '—';
+    document.getElementById('minMapeVal').textContent = data.minMape !== null ? data.minMape + '%' : '—';
+    document.getElementById('maxMapeVal').textContent = data.maxMape !== null ? data.maxMape + '%' : '—';
+    summaryCards.classList.remove('hidden');
+
+    // Tabel Evaluasi
+    const tbody = document.getElementById('mapeTableBody');
+    tbody.innerHTML = '';
+
+    data.rows.forEach(r => {
+      const tr = tbody.insertRow();
+      
+      // Badge untuk Kategori Akurasi Verbal berdasarkan wMAPE
+      let badgeClass = 'badge-na';
+      if (r.label === 'Sangat Baik') badgeClass = 'badge-sb';
+      else if (r.label === 'Baik') badgeClass = 'badge-b';
+      else if (r.label === 'Cukup') badgeClass = 'badge-c';
+      else if (r.label === 'Kurang') badgeClass = 'badge-k';
+
+      // Badge Pola Data Produk
+      let catMap = { Stable:'stable', Declining:'declining', Volatile:'volatile', Intermittent:'intermittent', Discontinued:'discontinued' };
+      let productCatBadge = `<span class="badge badge-${catMap[r.category] || 'na'}">${r.category}</span>`;
+
+      // Struktur baris tabel (Menampilkan MAPE dan wMAPE)
+      tr.innerHTML = `
+        <td><strong>${r.product}</strong></td>
+        <td>${productCatBadge}</td>
+        <td><code style="background:#f1f5f9; padding:.15rem .4rem; border-radius:4px;">${r.method}</code></td>
+        <td style="color: #64748b;">${r.mape !== null ? r.mape + '%' : '—'}</td>
+        <td style="font-weight: 700; color: ${r.wmape > 50 ? '#dc2626' : '#1e3a5f'};">${r.wmape !== null ? r.wmape + '%' : '—'}</td>
+        <td><span class="badge ${badgeClass}">${r.label}</span></td>
+      `;
+    });
+
+    tableContent.classList.remove('hidden');
+
+  } catch (err) {
+    loading.classList.add('hidden');
+    errorBox.className = 'alert alert-error';
+    errorBox.textContent = '❌ Terjadi kegagalan komunikasi data: ' + err.message;
+    errorBox.classList.remove('hidden');
+  }
+}
+</script>
+{% endblock %}

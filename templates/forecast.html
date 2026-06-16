@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}Forecast — Sales Forecasting{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>🔮 Multi-Product Forecasting</h1>
+  <p>Upload CSV → Pilih model → Generate forecast</p>
+</div>
+
+<!-- ── Step 1: Upload ── -->
+<div id="step-upload" class="card">
+  <div class="card-title">📂 Upload Dataset CSV</div>
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".csv" />
+    <div class="upload-zone-icon">📄</div>
+    <p><strong>Klik untuk pilih file</strong> atau drag &amp; drop di sini</p>
+    <p style="margin-top:.3rem;font-size:.8rem">Format CSV, maks 20 MB</p>
+  </div>
+  <div id="uploadStatus" class="hidden" style="margin-top:.75rem"></div>
+</div>
+
+<!-- ── Step 2: Preview ── -->
+<div id="step-preview" class="hidden">
+  <div class="card">
+    <div class="card-title">🔍 Pratinjau Data</div>
+    <div id="previewInfo" style="font-size:.85rem;color:#475569;margin-bottom:.75rem"></div>
+    <div class="table-wrap"><table id="previewTable"></table></div>
+  </div>
+
+  <!-- ── Step 3: Model Selection ── -->
+  <div class="card">
+    <div class="card-title">🎛️ Pilih Model per Produk</div>
+    <div id="productTable"></div>
+
+    <hr class="divider">
+
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem">
+      <label style="font-weight:600;font-size:.875rem">📅 Forecast Horizon:</label>
+      <input type="range" id="periodsSlider" min="1" max="36" value="12"
+             oninput="document.getElementById('periodsVal').textContent=this.value" />
+      <span id="periodsVal" style="font-weight:700;color:#2d6a9f;min-width:2.5rem">12</span>
+      <span style="font-size:.83rem;color:#64748b">bulan</span>
+    </div>
+
+    <button class="btn btn-primary" id="btnGenerate" onclick="runForecast()">
+      🚀 Generate Forecast Semua Produk
+    </button>
+  </div>
+</div>
+
+<!-- ── Progress ── -->
+<div id="step-progress" class="hidden card">
+  <div class="card-title"><span class="spinner"></span> Memproses forecast…</div>
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+  <p id="progressText" style="font-size:.85rem;color:#64748b;margin-top:.5rem">Memulai…</p>
+</div>
+
+<!-- ── Results ── -->
+<div id="step-results" class="hidden">
+  <div id="alertBox"></div>
+
+  <div class="metrics-row cols-3">
+    <div class="metric-card">
+      <div class="metric-label">Total Produk</div>
+      <div class="metric-value" id="metricProducts">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Total Forecast Sales</div>
+      <div class="metric-value" id="metricTotal">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Total Baris Forecast</div>
+      <div class="metric-value" id="metricRows">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📋 Hasil Forecast</div>
+    <div class="table-wrap"><table id="forecastTable"></table></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📅 Total Penjualan per Bulan — Semua Produk</div>
+    <div id="chartMonthly" style="height:420px"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📊 Grafik per Produk</div>
+    <div style="margin-bottom:1rem">
+      <select id="productSelect" onchange="loadProductChart(this.value)"></select>
+    </div>
+    <div id="chartProduct" style="height:380px"></div>
+  </div>
+
+  <hr class="divider">
+  <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+    <a id="btnDownload" href="/api/download/forecast" class="btn btn-success">📥 Download Forecast CSV</a>
+    <button class="btn btn-secondary" onclick="resetPage()">🔄 Upload Data Baru</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Upload handling 
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', ()=> uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+let _products = [];
+
+async function handleFile(file) {
+  const status = document.getElementById('uploadStatus');
+  status.className = 'alert alert-info';
+  status.innerHTML = '<span class="spinner"></span> Membaca dan menganalisis file…';
+  status.classList.remove('hidden');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const res  = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      status.className = 'alert alert-error';
+      status.textContent = '❌ ' + (data.error || 'Gagal upload.');
+      return;
+    }
+
+    status.className = 'alert alert-success';
+    status.textContent = `✅ ${data.products.length} produk terdeteksi dari ${data.totalRows.toLocaleString()} baris.`;
+
+    _products = data.products;
+    renderPreview(data.preview, data.columns);
+    renderProductTable(data.products);
+    document.getElementById('step-preview').classList.remove('hidden');
+
+  } catch (err) {
+    status.className = 'alert alert-error';
+    status.textContent = '❌ Error: ' + err.message;
+  }
+}
+
+function renderPreview(rows, cols) {
+  document.getElementById('previewInfo').textContent =
+    `Kolom: ${cols.join(', ')} | ${rows.length} baris pertama ditampilkan`;
+
+  const tbl = document.getElementById('previewTable');
+  tbl.innerHTML = '';
+  const thead = tbl.createTHead();
+  const hr    = thead.insertRow();
+  cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; hr.appendChild(th); });
+
+  const tbody = tbl.createTBody();
+  rows.forEach(row => {
+    const tr = tbody.insertRow();
+    cols.forEach(c => { const td = tr.insertCell(); td.textContent = row[c] ?? ''; });
+  });
+}
+
+const ALL_METHODS = [
+  'XGBoost','LightGBM','CatBoost','Random Forest',
+  'Extra Trees','Gradient Boosting','ElasticNet','Prophet','BiLSTM'
+];
+
+function categoryBadge(cat) {
+  const map = {
+    Stable:'stable', Declining:'declining', Volatile:'volatile',
+    Intermittent:'intermittent', Discontinued:'discontinued'
+  };
+  return `<span class="badge badge-${map[cat]||'na'}">${cat}</span>`;
+}
+
+function renderProductTable(products) {
+  const wrap = document.getElementById('productTable');
+  let html = `
+    <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Produk</th><th>Kategori</th><th>Mean Sales</th><th>CV</th><th>Model</th>
+      </tr></thead>
+      <tbody>`;
+
+  products.forEach(p => {
+    const opts = ALL_METHODS.map(m =>
+      `<option value="${m}" ${p.recommended[0]===m?'selected':''}>${m}</option>`
+    ).join('');
+    html += `<tr>
+      <td><strong>${p.model}</strong></td>
+      <td>${categoryBadge(p.category)}</td>
+      <td>${p.meanSales.toLocaleString()}</td>
+      <td>${p.cv.toFixed(3)}</td>
+      <td><select id="sel_${CSS.escape(p.model)}" style="min-width:140px">${opts}</select></td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  wrap.innerHTML = html;
+}
+
+// Run Forecast
+async function runForecast() {
+  const periods = parseInt(document.getElementById('periodsSlider').value);
+  const models  = {};
+  _products.forEach(p => {
+    const sel = document.getElementById('sel_' + CSS.escape(p.model));
+    if (sel) models[p.model] = sel.value;
+  });
+
+  document.getElementById('step-progress').classList.remove('hidden');
+  document.getElementById('step-results').classList.add('hidden');
+  document.getElementById('btnGenerate').disabled = true;
+
+  // Fake progress animation while waiting
+  let pct = 0;
+  const bar  = document.getElementById('progressBar');
+  const ptxt = document.getElementById('progressText');
+  const timer = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 8, 90);
+    bar.style.width = pct + '%';
+    ptxt.textContent = `Memproses forecast… ${Math.round(pct)}%`;
+  }, 400);
+
+  try {
+    const res  = await fetch('/api/forecast', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ periods, models }),
+    });
+    const data = await res.json();
+
+    clearInterval(timer);
+    bar.style.width = '100%';
+    ptxt.textContent = 'Selesai!';
+    setTimeout(() => document.getElementById('step-progress').classList.add('hidden'), 600);
+
+    if (!res.ok) {
+      showAlert('error', '❌ ' + (data.error || 'Gagal forecast.'));
+      return;
+    }
+
+    renderResults(data);
+
+  } catch (err) {
+    clearInterval(timer);
+    document.getElementById('step-progress').classList.add('hidden');
+    showAlert('error', '❌ Error: ' + err.message);
+  } finally {
+    document.getElementById('btnGenerate').disabled = false;
+  }
+}
+
+function showAlert(type, msg) {
+  const box = document.getElementById('alertBox');
+  box.className = `alert alert-${type}`;
+  box.textContent = msg;
+  box.classList.remove('hidden');
+}
+
+async function renderResults(data) {
+  const rows    = data.rows || [];
+  const prodSet = [...new Set(rows.map(r => r.Model))];
+
+  // Metrics
+  const totalFc = rows.reduce((s, r) => s + r.Forecast, 0);
+  document.getElementById('metricProducts').textContent = prodSet.length.toLocaleString();
+  document.getElementById('metricTotal').textContent    = totalFc.toLocaleString();
+  document.getElementById('metricRows').textContent     = rows.length.toLocaleString();
+
+  // Table (show first 200 rows)
+  const tbl  = document.getElementById('forecastTable');
+  const cols = ['Model','KYB No','Category','Method','Forecast Date','Forecast','MAPE', 'wMAPE'];
+  tbl.innerHTML = '';
+  const thead = tbl.createTHead();
+  const hr    = thead.insertRow();
+  cols.forEach(c => { const th = document.createElement('th'); th.textContent = c; hr.appendChild(th); });
+  const tbody = tbl.createTBody();
+  rows.slice(0, 200).forEach(row => {
+    const tr = tbody.insertRow();
+    cols.forEach(c => {
+      const td = tr.insertCell();
+      if (c === 'Category') td.innerHTML = categoryBadge(row[c]);
+      else if (c === 'wMAPE') td.textContent = row[c] !== null ? row[c] + '%' : '—'; // Tampilkan persentase
+      else td.textContent = row[c] ?? '—';
+    });
+  });
+  if (rows.length > 200) {
+    const tr = tbody.insertRow();
+    const td = tr.insertCell(); td.colSpan = cols.length;
+    td.style.color = '#64748b'; td.style.textAlign = 'center';
+    td.textContent = `… dan ${rows.length - 200} baris lainnya. Download CSV untuk data lengkap.`;
+  }
+
+  // Monthly total chart
+  await loadMonthlyChart();
+
+  // Product selector
+  const sel = document.getElementById('productSelect');
+  sel.innerHTML = prodSet.map(p => `<option value="${p}">${p}</option>`).join('');
+  if (prodSet.length) loadProductChart(prodSet[0]);
+
+  if (data.errors && data.errors.length) {
+    showAlert('warn', '⚠️ Beberapa produk dilewati: ' + data.errors.join(' | '));
+  } else {
+    showAlert('success', `✅ Forecast berhasil untuk ${prodSet.length} produk!`);
+  }
+
+  document.getElementById('step-results').classList.remove('hidden');
+  document.getElementById('step-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function loadMonthlyChart() {
+  const res  = await fetch('/api/monthly_total');
+  const data = await res.json();
+  if (data.error) return;
+
+  const traces = [];
+  if (data.actual.dates.length) {
+    traces.push({
+      x: data.actual.dates, y: data.actual.values,
+      type: 'scatter', mode: 'lines+markers', name: 'Actual',
+      fill: 'tozeroy', fillcolor: 'rgba(76,155,232,0.10)',
+      line: { color: '#4C9BE8', width: 2.5 },
+      hovertemplate: '<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>',
+    });
+  }
+  if (data.forecast.dates.length) {
+    traces.push({
+      x: data.forecast.dates, y: data.forecast.values,
+      type: 'scatter', mode: 'lines+markers', name: 'Forecast',
+      line: { color: '#F97316', width: 2.5, dash: 'dash' },
+      hovertemplate: '<b>%{x}</b><br>Forecast: %{y:,.0f}<extra></extra>',
+    });
+  }
+
+  const shapes = [];
+  if (data.actual.dates.length && data.forecast.dates.length) {
+    shapes.push({
+      type:'line', x0: data.actual.dates.at(-1), x1: data.actual.dates.at(-1),
+      y0:0, y1:1, yref:'paper',
+      line:{color:'gray',width:1.5,dash:'dot'},
+    });
+  }
+
+  Plotly.newPlot('chartMonthly', traces, {
+    shapes,
+    xaxis: { title:'Bulan', tickformat:'%b %Y', showgrid:true, gridcolor:'rgba(0,0,0,0.06)' },
+    yaxis: { title:'Total Qty', rangemode:'tozero', showgrid:true, gridcolor:'rgba(0,0,0,0.06)' },
+    legend: { orientation:'h', y:1.08 },
+    margin: { t:40, b:50, l:60, r:20 },
+    hovermode: 'x unified',
+    plot_bgcolor: 'rgba(0,0,0,0)', paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { responsive: true });
+}
+
+async function loadProductChart(product) {
+  if (!product) return;
+  const res  = await fetch('/api/product_chart/' + encodeURIComponent(product));
+  const data = await res.json();
+  if (data.error) return;
+
+  const traces = [];
+  if (data.actual.dates.length) {
+    traces.push({
+      x: data.actual.dates, y: data.actual.values,
+      type: 'scatter', mode: 'lines+markers', name: 'Actual',
+      line: { color: '#4C9BE8', width: 2 },
+      hovertemplate: '<b>%{x}</b><br>Actual: %{y:,.0f}<extra></extra>',
+    });
+  }
+  if (data.forecast.dates.length) {
+    traces.push({
+      x: data.forecast.dates, y: data.forecast.values,
+      type: 'scatter', mode: 'lines+markers', name: 'Forecast',
+      line: { color: '#F97316', width: 2, dash: 'dash' },
+      hovertemplate: '<b>%{x}</b><br>Forecast: %{y:,.0f}<extra></extra>',
+    });
+  }
+
+  const shapes = [];
+  if (data.actual.dates.length) {
+    shapes.push({
+      type:'line', x0: data.actual.dates.at(-1), x1: data.actual.dates.at(-1),
+      y0:0, y1:1, yref:'paper', line:{color:'gray',width:1.5,dash:'dot'},
+    });
+  }
+
+  Plotly.newPlot('chartProduct', traces, {
+    shapes,
+    title: { text: product, font: { size: 14 } },
+    xaxis: { title:'Tanggal', showgrid:true, gridcolor:'rgba(0,0,0,0.06)' },
+    yaxis: { title:'Sales / Qty', rangemode:'tozero', showgrid:true, gridcolor:'rgba(0,0,0,0.06)' },
+    legend: { orientation:'h', y:1.12 },
+    margin: { t:60, b:50, l:60, r:20 },
+    hovermode: 'x unified',
+    plot_bgcolor: 'rgba(0,0,0,0)', paper_bgcolor: 'rgba(0,0,0,0)',
+  }, { responsive: true });
+}
+
+function resetPage() {
+  location.reload();
+}
+</script>
+{% endblock %}

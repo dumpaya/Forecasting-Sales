@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Data Analysis — Sales Forecasting{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📊 Exploratory Data Analysis (EDA)</h1>
+  <p>Upload CSV untuk melihat karakteristik data, deskripsi statistik, dan tren penjualan bulanan</p>
+</div>
+
+<!-- ── Step 1: Upload Data Analisis ── -->
+<div id="eda-upload-card" class="card">
+  <div class="card-title">📂 Upload Dataset CSV untuk Dianalisis</div>
+  <div class="upload-zone" id="edaUploadZone">
+    <input type="file" id="edaFileInput" accept=".csv" />
+    <div class="upload-zone-icon">📊</div>
+    <p><strong>Klik untuk pilih file</strong> atau drag &amp; drop di sini</p>
+    <p style="margin-top:.3rem;font-size:.8rem">Sistem akan mengekstrak statistik deskriptif dan grafik tren otomatis</p>
+  </div>
+  <div id="edaStatus" class="hidden" style="margin-top:.75rem"></div>
+</div>
+
+<!-- ── Step 2: Hasil Analisis ── -->
+<div id="eda-results" class="hidden">
+  
+  <!-- Metrics Ringkasan -->
+  <div class="metrics-row cols-3">
+    <div class="metric-card">
+      <div class="metric-label">Total Baris Data</div>
+      <div class="metric-value" id="metaRows">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Total Kolom</div>
+      <div class="metric-value" id="metaCols">—</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Total Missing Values</div>
+      <div class="metric-value" id="metaMissing">—</div>
+    </div>
+  </div>
+
+  <!-- 📊 Grafik Tren Bulanan & Top Produk -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
+    <div class="card">
+      <div class="card-title">📈 Tren Penjualan Bulanan Keseluruhan (Monthly Trend Sales)</div>
+      <div id="edaChartTrend" style="height: 360px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🏆 Top 10 Produk Terlaris (Volume Penjualan)</div>
+      <div id="edaChartTop" style="height: 360px;"></div>
+    </div>
+  </div>
+
+  <!-- Ringkasan Statistik Deskriptif -->
+  <div class="card">
+    <div class="card-title">📐 Ringkasan Statistik Deskriptif Kolom Numerik</div>
+    <div class="table-wrap">
+      <table id="statsTable">
+        <!-- Terisi via JS -->
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const edaUploadZone = document.getElementById('edaUploadZone');
+const edaFileInput  = document.getElementById('edaFileInput');
+
+edaUploadZone.addEventListener('click', () => edaFileInput.click());
+edaUploadZone.addEventListener('dragover', e => { e.preventDefault(); edaUploadZone.classList.add('drag-over'); });
+edaUploadZone.addEventListener('dragleave', () => edaUploadZone.classList.remove('drag-over'));
+edaUploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  edaUploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleEdaFile(e.dataTransfer.files[0]);
+});
+edaFileInput.addEventListener('change', () => { if (edaFileInput.files[0]) handleEdaFile(edaFileInput.files[0]); });
+
+async function handleEdaFile(file) {
+  const status = document.getElementById('edaStatus');
+  status.className = 'alert alert-info';
+  status.innerHTML = '<span class="spinner"></span> Menganalisis dataset dan mengekstrak tren bulanan…';
+  status.classList.remove('hidden');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const res = await fetch('/api/eda', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok) {
+      status.className = 'alert alert-error';
+      status.textContent = '❌ ' + (data.error || 'Gagal menganalisis data.');
+      return;
+    }
+
+    status.className = 'alert alert-success';
+    status.textContent = `✅ Analisis EDA sukses! Berhasil memproses ${data.totalRows.toLocaleString()} baris data.`;
+
+    renderEdaDashboard(data);
+
+  } catch (err) {
+    status.className = 'alert alert-error';
+    status.textContent = '❌ Error: ' + err.message;
+  }
+}
+
+function renderEdaDashboard(data) {
+  // 1. Update data metrik ringkasan
+  document.getElementById('metaRows').textContent = data.totalRows.toLocaleString();
+  document.getElementById('metaCols').textContent = data.totalCols.toLocaleString();
+  document.getElementById('metaMissing').textContent = data.missing.toLocaleString();
+
+  // 2. Render Tabel Statistik Deskriptif
+  const statsTable = document.getElementById('statsTable');
+  statsTable.innerHTML = '';
+  
+  const thead = statsTable.createTHead();
+  const headerRow = thead.insertRow();
+  const thMetric = document.createElement('th');
+  thMetric.textContent = 'Statistik';
+  headerRow.appendChild(thMetric);
+  
+  const columns = Object.keys(data.stats);
+  columns.forEach(col => {
+    const th = document.createElement('th');
+    th.textContent = col;
+    headerRow.appendChild(th);
+  });
+
+  const tbody = statsTable.createTBody();
+  const metrics = ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max'];
+  
+  metrics.forEach(metric => {
+    const tr = tbody.insertRow();
+    const tdLabel = tr.insertCell();
+    tdLabel.innerHTML = `<strong>${metric}</strong>`;
+    
+    columns.forEach(col => {
+      const td = tr.insertCell();
+      td.textContent = data.stats[col][metric] ?? '—';
+    });
+  });
+
+  // 3. 📈 Render Grafik Monthly Trend Sales (Grafik Garis Area)
+  if (data.trend && data.trend.dates && data.trend.dates.length) {
+    const trendTrace = {
+      x: data.trend.dates,
+      y: data.trend.values,
+      type: 'scatter',
+      mode: 'lines+markers',
+      name: 'Total Aktual',
+      fill: 'tozeroy',
+      fillcolor: 'rgba(30, 77, 140, 0.08)',
+      line: { color: '#1e4d8c', width: 2.5 },
+      hovertemplate: '<b>%{x}</b><br>Total Qty: %{y:,.0f}<extra></extra>'
+    };
+    
+    Plotly.newPlot('edaChartTrend', [trendTrace], {
+      xaxis: { title: 'Bulan/Periode', showgrid: true, gridcolor: 'rgba(0,0,0,0.05)' },
+      yaxis: { title: `Total Volume (${data.trend.yCol})`, showgrid: true, gridcolor: 'rgba(0,0,0,0.05)' },
+      margin: { t: 20, b: 50, l: 60, r: 20 },
+      hovermode: 'x unified',
+      plot_bgcolor: 'rgba(0,0,0,0)',
+      paper_bgcolor: 'rgba(0,0,0,0)'
+    }, { responsive: true });
+  } else {
+    document.getElementById('edaChartTrend').innerHTML = '<p style="color:#64748b;text-align:center;padding-top:5rem;">Kolom tanggal tidak terdeteksi untuk membuat tren bulanan.</p>';
+  }
+
+  // 4. 🏆 Render Grafik Top 10 Produk (Grafik Batang)
+  if (data.top && data.top.models && data.top.models.length) {
+    const topTrace = {
+      x: data.top.models,
+      y: data.top.values,
+      type: 'bar',
+      marker: { color: '#60a5fa', line: { color: '#2d6a9f', width: 1 } },
+      hovertemplate: '<b>%{x}</b><br>Volume: %{y:,.0f}<extra></extra>'
+    };
+    
+    Plotly.newPlot('edaChartTop', [topTrace], {
+      xaxis: { title: 'Model / Part Number', tickangle: -25, automargin: true },
+      yaxis: { title: 'Total Volume Terjual', showgrid: true, gridcolor: 'rgba(0,0,0,0.05)' },
+      margin: { t: 20, b: 60, l: 60, r: 20 },
+      hovermode: 'x unified',
+      plot_bgcolor: 'rgba(0,0,0,0)',
+      paper_bgcolor: 'rgba(0,0,0,0)'
+    }, { responsive: true });
+  } else {
+    document.getElementById('edaChartTop').innerHTML = '<p style="color:#64748b;text-align:center;padding-top:5rem;">Kolom "Model" tidak ditemukan untuk memetakan produk terlaris.</p>';
+  }
+
+  // Munculkan kontainer hasil analisis
+  document.getElementById('eda-results').classList.remove('hidden');
+}
+</script>
+{% endblock %}
